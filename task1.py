@@ -1,43 +1,70 @@
-import os
 import shutil
 import argparse
+from pathlib import Path
+import os
 
-def copy_files(src, dest, root_dest):
-    if not os.path.exists(dest):
-        os.makedirs(dest)
-    
-    for item in os.listdir(src):
-        s = os.path.join(src, item)
-        d = os.path.join(dest, item)
-        if os.path.isdir(s):
-            copy_files(s, d, root_dest)  
+def copy_directory_contents(src, dest):
+    create_destination_dir(dest)
+    process_directory_contents(src, dest)
+
+
+def create_destination_dir(destination):
+    if not destination.exists():
+        print("Destination folder was created in the current directory")
+        destination.mkdir()
+
+
+def process_directory_contents(source, destination):
+    for item in source.iterdir():
+        if item.is_dir():
+            copy_directory_contents(item, destination)
         else:
-            try:
-                ext = os.path.splitext(item)[1][1:] 
-                final_directory = os.path.join(root_dest, ext)  
-                if not os.path.exists(final_directory):
-                    os.makedirs(final_directory)
-                shutil.copy(s, os.path.join(final_directory, item))
-            except IOError as e:
-                print(f"Unable to copy due to an IO error: {e}")
-            except Exception as e:
-                print(f"An unexpected error occurred: {e}")
+            process_file_item(item, destination)
 
-def main():
-    parser = argparse.ArgumentParser(description="Copy files into new directory sorted by file extension.")
-    parser.add_argument('src', type=str, help="Source directory path")
-    parser.add_argument('dest', type=str, nargs='?', default="dist", help="Destination directory path (default: dist)")
-    
-    args = parser.parse_args()
 
-    if not os.path.exists(args.src):
-        print("Error: Source directory does not exist.")
-        return
-    
+def process_file_item(file_path, destination):
+    if can_access_file(file_path):
+        folder_for_extension = get_or_create_extension_folder(file_path, destination)
+        if folder_for_extension:
+            destination_path = get_unique_destination_path(file_path, folder_for_extension)
+            shutil.copy(file_path, destination_path)
+
+
+def get_or_create_extension_folder(file_path, destination):
+    extension = file_path.suffix.lower().lstrip('.')
+    if extension:
+        folder_path = destination.joinpath(extension)
+        folder_path.mkdir(exist_ok=True)
+        return folder_path
+    return None
+
+
+def can_access_file(file_path):
     try:
-        copy_files(args.src, args.dest, args.dest)
+        return os.access(file_path, os.R_OK | os.W_OK | os.X_OK)
     except Exception as e:
-        print(f"Error occurred: {e}")
+        print(f"No access rights: {e}")
+        return False
+
+
+def get_unique_destination_path(file_path, destination_folder):
+    base_name = file_path.stem
+    extension = file_path.suffix
+    unique_path = destination_folder.joinpath(f"{base_name}{extension}")
+
+    counter = 1
+    while unique_path.exists():
+        unique_path = destination_folder.joinpath(f"{base_name}_copy_{counter}{extension}")
+        counter += 1
+
+    return unique_path
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="File Copy Utility")
+    parser.add_argument("--source", type=Path, default=Path.cwd(), help="Source directory path")
+    parser.add_argument("--destination", type=Path, default=Path("./dist"), help="Destination directory path")
+
+    args = parser.parse_args()
+
+    copy_directory_contents(args.source, args.destination)
+    print("File copying process completed")
